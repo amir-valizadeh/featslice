@@ -1,4 +1,3 @@
-// templates/service.ts
 import { capitalize } from '../utils';
 
 export const getServiceTemplate = (featureName: string) => `import type { 

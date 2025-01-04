@@ -1,4 +1,3 @@
-// templates/react.ts
 import { capitalize } from '../utils';
 
 export const getReactSliceTemplate = (sliceName: string) => `import React from 'react';

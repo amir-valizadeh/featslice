@@ -1,4 +1,3 @@
-// templates/next.ts
 import { capitalize } from '../utils';
 
 export const getNextSliceTemplate = (sliceName: string) => `export default function ${capitalize(sliceName)}Page() {
