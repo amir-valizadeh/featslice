@@ -1,6 +1,9 @@
 {
   "name": "featslice",
   "version": "1.0.0",
+  "author": "Amir Valizadeh",
+  "license": "MIT",
+  "repository": "github:amir-valizadeh/featslice",
   "description": "Feature folder structure generator for React/Next.js projects",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,8 +25,7 @@
     "scaffold",
     "cli"
   ],
-  "author": "Amir Valizadeh",
-  "license": "MIT",
+
   "dependencies": {
     "commander": "^11.0.0",
     "fs-extra": "^11.1.1",
