@@ -12,6 +12,7 @@ import {
     getReactCommonTemplates
 } from './templates/react';
 import { getServiceTemplate } from './templates/service';
+import {capitalize} from "./utils";
 
 interface FeatureOptions {
     name: string;
@@ -53,7 +54,7 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
 
         // Create service file
         await fs.writeFile(
-            path.join(basePath, 'api/services', `${name}.service.ts`),
+            path.join(basePath, 'api/services', `${capitalize(name)}.service.ts`),
             getServiceTemplate(name)
         );
 

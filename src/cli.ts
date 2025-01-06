@@ -146,7 +146,7 @@ async function promptFeature(): Promise<FeatureAnswers> {
 }
 
 program
-    .version('1.0.0')
+    .version('1.0.1')
     .description('Generate feature folder structure for React/Next.js projects')
     .arguments('[featureName] [slices]')
     .action(async (featureName?: string, slices?: string) => {
