@@ -37,6 +37,21 @@ The CLI will guide you through:
 2. First slice name
 3. Option to add more slices
 
+### Dry Run Mode
+
+To preview the files and directories that will be created without actually modifying your filesystem, use the `--dry-run` or `-d` flag:
+```bash
+featslice auth login,register --dry-run
+```
+
+### Adding Slices to Existing Features
+
+If you already have a feature generated (e.g., `auth`) and want to add a new slice to it (e.g., `logout`), simply run the command again with the existing feature name and the new slice:
+```bash
+featslice auth logout
+```
+FeatSlice will intelligently add only the new slice without overwriting your existing files or shared directories.
+
 ### Project Type Detection
 
 FeatSlice automatically detects whether you're in a Next.js or React project by checking your package.json. You don't need to specify this manually.
@@ -186,7 +201,7 @@ featslice order-management order-list,order-details,create-order
 A: Run it in your project's `src` directory, typically in `src/features` or `src/modules`.
 
 ### Q: How do I add a new slice later?
-A: Currently, you need to manually create the new slice following the same structure. Future versions will support adding slices to existing features.
+A: Simply run the command again with the same feature name and the new slice name. FeatSlice will add the new slice to your existing feature structure without overwriting existing files!
 
 ### Q: Can I customize the templates?
 A: The templates are currently fixed, but future versions will support custom templates.
