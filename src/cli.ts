@@ -149,8 +149,14 @@ program
     .version('1.0.1')
     .description('Generate feature folder structure for React/Next.js projects')
     .arguments('[featureName] [slices]')
-    .action(async (featureName?: string, slices?: string) => {
+    .option('-d, --dry-run', 'Preview the changes without creating any files')
+    .action(async (featureName?: string, slices?: string, options?: { dryRun?: boolean }) => {
         try {
+            if (options?.dryRun) {
+                console.log(chalk.yellow('\n--- DRY RUN MODE ACTIVE ---'));
+                console.log(chalk.yellow('No files or directories will be created.\n'));
+            }
+
             console.log(chalk.blue('Checking project type...'));
             const isNextjs = await isNextJsProject();
             console.log(chalk.green(`Detected ${isNextjs ? 'Next.js' : 'React'} project`));
@@ -172,7 +178,8 @@ program
             await generateFeature({
                 name: answers.featureName,
                 isNextjs,
-                slices: answers.slices
+                slices: answers.slices,
+                dryRun: options?.dryRun
             });
 
             console.log(chalk.green('✔ Feature structure generated successfully!'));
