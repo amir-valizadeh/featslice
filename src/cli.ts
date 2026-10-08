@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { generateFeature } from './generator';
+import { detectFeatureDir, findRootDir } from './utils';
+import { loadConfig } from './config';
+import { initProject } from './init';
+import { listFeatures, printFeatureTree, removeFeatureOrSlice } from './manager';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import fs from 'fs-extra';
@@ -9,27 +13,11 @@ import path from 'path';
 interface FeatureAnswers {
     featureName: string;
     slices: string[];
+    outputDir?: string;
+    presets?: string[];
 }
 
 const program = new Command();
-
-async function findRootDir(startPath: string): Promise<string | null> {
-    let currentPath = startPath;
-
-    while (currentPath !== path.parse(currentPath).root) {
-        // Check for package.json
-        if (await fs.pathExists(path.join(currentPath, 'package.json'))) {
-            return currentPath;
-        }
-        // Move up one directory
-        currentPath = path.dirname(currentPath);
-    }
-
-    // Check root directory as last resort
-    return await fs.pathExists(path.join(currentPath, 'package.json'))
-        ? currentPath
-        : null;
-}
 
 async function isNextJsProject(): Promise<boolean> {
     const startDir = process.cwd();
@@ -82,7 +70,8 @@ async function isNextJsProject(): Promise<boolean> {
         return false;
     }
 }
-async function promptFeature(): Promise<FeatureAnswers> {
+
+async function promptFeature(defaultOutputDir: string): Promise<FeatureAnswers> {
     // Step 1: Feature name
     const featureNameAnswer = await inquirer.prompt({
         type: 'input',
@@ -96,7 +85,15 @@ async function promptFeature(): Promise<FeatureAnswers> {
         }
     });
 
-    // Step 2: First slice name
+    // Step 2: Output directory
+    const outputDirAnswer = await inquirer.prompt({
+        type: 'input',
+        name: 'outputDir',
+        message: 'Where should the feature be created?',
+        default: defaultOutputDir
+    });
+
+    // Step 3: First slice name
     const firstSliceAnswer = await inquirer.prompt({
         type: 'input',
         name: 'firstSlice',
@@ -112,7 +109,7 @@ async function promptFeature(): Promise<FeatureAnswers> {
     let slices = [firstSliceAnswer.firstSlice];
     let addMore = true;
 
-    // Step 3: Additional slices
+    // Step 4: Additional slices
     while (addMore) {
         const moreSliceAnswer = await inquirer.prompt({
             type: 'confirm',
@@ -139,18 +136,230 @@ async function promptFeature(): Promise<FeatureAnswers> {
         }
     }
 
+    // Step 5: Presets
+    const presetsAnswer = await inquirer.prompt({
+        type: 'checkbox',
+        name: 'presets',
+        message: 'Select additional stack presets and options:',
+        choices: [
+            { name: 'TanStack Query (React Query hooks & keys)', value: 'query' },
+            { name: 'Server Actions (Next.js server actions)', value: 'serverActions' },
+            { name: 'Zustand (State store)', value: 'zustand' },
+            { name: 'Unit & Component tests', value: 'withTests' },
+            { name: 'Minimal scaffolding', value: 'minimal' },
+        ],
+    });
+
     return {
         featureName: featureNameAnswer.featureName,
-        slices
+        slices,
+        outputDir: outputDirAnswer.outputDir,
+        presets: presetsAnswer.presets,
     };
 }
 
 program
-    .version('1.0.2')
-    .description('Generate feature folder structure for React/Next.js projects')
-    .arguments('[featureName] [slices]')
+    .version('1.1.0')
+    .description('Generate feature folder structure for React/Next.js projects');
+
+program
+    .command('init')
+    .description('Initialize featslice configuration and sample templates')
+    .option('-y, --yes', 'Skip prompts and generate default configuration and templates')
+    .option('-o, --output <dir>', 'Specify default output directory for features')
+    .option('-t, --template-dir <dir>', 'Specify directory for custom templates')
+    .option('--no-templates', 'Do not generate sample custom templates')
+    .action(async (cmdOptions: { yes?: boolean; output?: string; templateDir?: string; templates?: boolean }) => {
+        try {
+            await initProject({
+                yes: cmdOptions.yes,
+                outputDir: cmdOptions.output,
+                templateDir: cmdOptions.templateDir,
+                createTemplates: cmdOptions.templates !== false,
+            });
+        } catch (error) {
+            console.error(chalk.red('Error during initialization:'), error);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('list')
+    .alias('ls')
+    .description('List existing features, slices, shared folders, and presets')
+    .option('-o, --output <dir>', 'Specify features directory to scan')
+    .option('--json', 'Output features in JSON format')
+    .action(async (cmdOptions: { output?: string; json?: boolean }) => {
+        try {
+            const features = await listFeatures({
+                targetDir: cmdOptions.output,
+                json: cmdOptions.json,
+            });
+            if (!cmdOptions.json) {
+                printFeatureTree(features, cmdOptions.output);
+            }
+        } catch (error) {
+            console.error(chalk.red('Error listing features:'), error);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('add <feature> <slice> [otherSlices...]')
+    .description('Add one or more slices to an existing (or new) feature')
+    .option('-o, --output <dir>', 'Specify output directory for the feature (e.g., src/features)')
     .option('-d, --dry-run', 'Preview the changes without creating any files')
-    .action(async (featureName?: string, slices?: string, options?: { dryRun?: boolean }) => {
+    .option('-q, --query', 'Generate TanStack Query hooks and query keys factory')
+    .option('-a, --server-actions', 'Generate Next.js Server Actions')
+    .option('-z, --zustand', 'Generate Zustand state management store')
+    .option('--minimal', 'Minimal scaffolding (components, types, and slice pages only)')
+    .option('-t, --with-tests', 'Generate unit and component test scaffolding')
+    .option('--no-layout', 'Skip generating layout file')
+    .option('--no-services', 'Skip generating api/services')
+    .option('-f, --force', 'Overwrite existing files if they already exist')
+    .action(async (feature: string, slice: string, otherSlices: string[] = [], cmdOptions?: {
+        output?: string;
+        dryRun?: boolean;
+        query?: boolean;
+        serverActions?: boolean;
+        zustand?: boolean;
+        minimal?: boolean;
+        withTests?: boolean;
+        layout?: boolean;
+        noLayout?: boolean;
+        services?: boolean;
+        noServices?: boolean;
+        force?: boolean;
+    }) => {
+        try {
+            if (cmdOptions?.dryRun) {
+                console.log(chalk.yellow('\n--- DRY RUN MODE ACTIVE ---'));
+                console.log(chalk.yellow('No files or directories will be created.\n'));
+            }
+
+            console.log(chalk.blue('Checking project type...'));
+            const isNextjs = await isNextJsProject();
+            console.log(chalk.green(`Detected ${isNextjs ? 'Next.js' : 'React'} project`));
+
+            const config = await loadConfig();
+            const detectedDir = await detectFeatureDir();
+            const chosenOutputDir =
+                cmdOptions?.output ||
+                config.outputDir ||
+                (detectedDir !== '.' ? detectedDir : undefined);
+
+            const slices = [slice, ...(otherSlices || [])]
+                .flatMap((s) => s.split(','))
+                .map((s) => s.trim())
+                .filter(Boolean);
+
+            console.log(
+                chalk.blue(`Adding slice(s) [${slices.join(', ')}] to feature "${feature}"...`)
+            );
+
+            await generateFeature({
+                name: feature,
+                isNextjs,
+                slices,
+                outputDir: chosenOutputDir,
+                dryRun: cmdOptions?.dryRun,
+                config,
+                query: cmdOptions?.query ?? false,
+                serverActions: cmdOptions?.serverActions ?? false,
+                zustand: cmdOptions?.zustand ?? false,
+                minimal: cmdOptions?.minimal ?? false,
+                withTests: cmdOptions?.withTests ?? false,
+                noLayout: cmdOptions?.noLayout ?? (cmdOptions?.layout === false),
+                noServices: cmdOptions?.noServices ?? (cmdOptions?.services === false),
+                force: cmdOptions?.force ?? false,
+            });
+
+            if (!cmdOptions?.dryRun) {
+                console.log(chalk.green(`✔ Successfully added slice(s) to feature '${feature}'!`));
+            }
+        } catch (error) {
+            console.error(chalk.red('Error adding slice to feature:'), error);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('remove <feature> [slice]')
+    .alias('rm')
+    .description('Remove an entire feature or a specific slice within a feature')
+    .option('-o, --output <dir>', 'Specify output directory for the feature (e.g., src/features)')
+    .option('-d, --dry-run', 'Preview the removal without deleting any files')
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .option('-f, --force', 'Force removal without confirmation')
+    .action(async (feature: string, slice?: string, cmdOptions?: {
+        output?: string;
+        dryRun?: boolean;
+        yes?: boolean;
+        force?: boolean;
+    }) => {
+        try {
+            const skipConfirm = cmdOptions?.yes || cmdOptions?.force || cmdOptions?.dryRun;
+
+            if (!skipConfirm) {
+                const targetDesc = slice
+                    ? `slice '${slice}' from feature '${feature}'`
+                    : `entire feature '${feature}' (and all its contents)`;
+                const answer = await inquirer.prompt({
+                    type: 'confirm',
+                    name: 'confirmed',
+                    message: `Are you sure you want to remove ${targetDesc}?`,
+                    default: false,
+                });
+
+                if (!answer.confirmed) {
+                    console.log(chalk.yellow('Removal cancelled.'));
+                    return;
+                }
+            }
+
+            const success = await removeFeatureOrSlice({
+                feature,
+                slice,
+                targetDir: cmdOptions?.output,
+                dryRun: cmdOptions?.dryRun,
+                force: cmdOptions?.force,
+            });
+
+            if (!success) {
+                process.exitCode = 1;
+            }
+        } catch (error) {
+            console.error(chalk.red('Error removing feature or slice:'), error);
+            process.exit(1);
+        }
+    });
+
+program
+    .arguments('[featureName] [slices]')
+    .option('-o, --output <dir>', 'Specify output directory for the feature (e.g., src/features)')
+    .option('-d, --dry-run', 'Preview the changes without creating any files')
+    .option('-q, --query', 'Generate TanStack Query hooks and query keys factory')
+    .option('-a, --server-actions', 'Generate Next.js Server Actions')
+    .option('-z, --zustand', 'Generate Zustand state management store')
+    .option('--minimal', 'Minimal scaffolding (components, types, and slice pages only)')
+    .option('-t, --with-tests', 'Generate unit and component test scaffolding')
+    .option('--no-layout', 'Skip generating layout file')
+    .option('--no-services', 'Skip generating api/services')
+    .option('-f, --force', 'Overwrite existing files if they already exist')
+    .action(async (featureName?: string, slices?: string, options?: {
+        output?: string;
+        dryRun?: boolean;
+        query?: boolean;
+        serverActions?: boolean;
+        zustand?: boolean;
+        minimal?: boolean;
+        withTests?: boolean;
+        layout?: boolean;
+        noLayout?: boolean;
+        services?: boolean;
+        noServices?: boolean;
+        force?: boolean;
+    }) => {
         try {
             if (options?.dryRun) {
                 console.log(chalk.yellow('\n--- DRY RUN MODE ACTIVE ---'));
@@ -161,25 +370,61 @@ program
             const isNextjs = await isNextJsProject();
             console.log(chalk.green(`Detected ${isNextjs ? 'Next.js' : 'React'} project`));
 
+            const config = await loadConfig();
+            const detectedDir = await detectFeatureDir();
             let answers: FeatureAnswers;
 
             if (featureName && slices) {
                 // Command-line argument mode
+                const chosenOutputDir =
+                    options?.output ||
+                    config.outputDir ||
+                    (detectedDir !== '.' ? detectedDir : undefined);
+
+                if (!options?.output && config.outputDir) {
+                    console.log(chalk.blue(`Configured features directory: ${config.outputDir}`));
+                } else if (!options?.output && detectedDir !== '.') {
+                    console.log(chalk.blue(`Auto-detected features directory: ${detectedDir}`));
+                } else if (options?.output) {
+                    console.log(chalk.blue(`Output directory: ${options.output}`));
+                }
+
                 answers = {
                     featureName,
-                    slices: slices.split(',').map(s => s.trim())
+                    slices: slices.split(',').map(s => s.trim()),
+                    outputDir: chosenOutputDir
                 };
                 console.log(chalk.blue(`Creating feature "${featureName}" with slices: ${answers.slices.join(', ')}`));
             } else {
                 // Interactive mode
-                answers = await promptFeature();
+                answers = await promptFeature(options?.output || config.outputDir || detectedDir);
             }
+
+            const selectedPresets = answers.presets || [];
+            const query = options?.query ?? selectedPresets.includes('query');
+            const serverActions = options?.serverActions ?? selectedPresets.includes('serverActions');
+            const zustand = options?.zustand ?? selectedPresets.includes('zustand');
+            const withTests = options?.withTests ?? selectedPresets.includes('withTests');
+            const minimal = options?.minimal ?? selectedPresets.includes('minimal');
+            const noLayout = options?.noLayout ?? (options?.layout === false);
+            const noServices = options?.noServices ?? (options?.services === false);
+            const force = options?.force ?? false;
 
             await generateFeature({
                 name: answers.featureName,
                 isNextjs,
                 slices: answers.slices,
-                dryRun: options?.dryRun
+                outputDir: answers.outputDir,
+                dryRun: options?.dryRun,
+                config,
+                query,
+                serverActions,
+                zustand,
+                minimal,
+                withTests,
+                noLayout,
+                noServices,
+                force,
             });
 
             console.log(chalk.green('✔ Feature structure generated successfully!'));

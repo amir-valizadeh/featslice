@@ -37,6 +37,16 @@ The CLI will guide you through:
 2. First slice name
 3. Option to add more slices
 
+### Custom Output Directory & Auto-Detection
+
+By default, FeatSlice will automatically detect common feature directories if they exist in your project (`src/features`, `src/modules`, `features`, or `modules`).
+
+You can also explicitly specify a target directory using the `--output` or `-o` flag:
+```bash
+featslice auth login,register -o src/features
+```
+In interactive mode, FeatSlice will prompt for the target directory, pre-filled with the auto-detected location.
+
 ### Dry Run Mode
 
 To preview the files and directories that will be created without actually modifying your filesystem, use the `--dry-run` or `-d` flag:
@@ -44,13 +54,132 @@ To preview the files and directories that will be created without actually modif
 featslice auth login,register --dry-run
 ```
 
-### Adding Slices to Existing Features
+## How It Works
 
-If you already have a feature generated (e.g., `auth`) and want to add a new slice to it (e.g., `logout`), simply run the command again with the existing feature name and the new slice:
-```bash
-featslice auth logout
 ```
-FeatSlice will intelligently add only the new slice without overwriting your existing files or shared directories.
+Command: featslice auth login,register --query
+                     │
+                     ▼
+  1. Detect project type (Next.js / React) and feature directory (src/features)
+  2. Load .featslicerc.json and custom templates (.featslice/templates)
+  3. Apply stack presets (TanStack Query, Server Actions, Zustand, Tests)
+                     │
+                     ▼
+  Scaffolded Feature:
+  src/features/auth/
+  ├── components/          # Shared components
+  ├── hooks/               # Custom hooks & queries
+  ├── types/               # TypeScript interfaces
+  ├── utils/               # Utility functions
+  ├── api/                 # API services / queries / actions
+  ├── login/               # Slice: page and components
+  ├── register/            # Slice: page and components
+  └── layout.tsx           # Feature layout
+```
+
+## Feature Lifecycle & Management
+
+FeatSlice includes dedicated subcommands to inspect, add, and clean up features and slices in your project:
+
+### 1. Listing Features (`list`, `ls`)
+
+Inspect existing features, their slices, shared folders, and active presets:
+
+```bash
+featslice list
+# or using alias
+featslice ls
+```
+
+**Options:**
+- `-o, --output <dir>`: Specify a features directory to scan (defaults to configured/auto-detected directory).
+- `--json`: Output features data as formatted JSON.
+
+```bash
+featslice list --json
+```
+
+**Terminal Output:**
+```
+Features (2 found):
+├── auth (src/features/auth)
+│   ├── Slices:
+│   │   ├── login
+│   │   └── register
+│   ├── Shared: components, hooks, types, utils, services
+│   └── Presets: [TanStack Query] [Server Actions]
+│   
+└── billing (src/features/billing)
+    ├── Slices:
+    │   └── invoices
+    ├── Shared: components, types, store
+    └── Presets: [Zustand]
+```
+
+### 2. Adding Slices (`add`)
+
+Add one or more slices to an existing feature (or create the feature if it doesn't exist yet):
+
+```bash
+featslice add auth logout
+featslice add users profile settings
+featslice add posts editor,view --server-actions
+```
+
+Supports all generation flags including presets (`--query`, `--server-actions`, `--zustand`, `--with-tests`), output directory (`-o`), and `--dry-run`.
+
+### 3. Removing Features & Slices (`remove`, `rm`)
+
+Safely delete a single slice or an entire feature:
+
+```bash
+# Remove a specific slice only
+featslice remove auth logout
+featslice rm auth logout
+
+# Remove an entire feature
+featslice remove billing
+featslice rm billing
+```
+
+**Options:**
+- `-d, --dry-run`: Preview what would be removed without actually deleting files.
+- `-y, --yes`: Skip interactive confirmation prompt.
+- `-f, --force`: Force removal without prompt.
+- `-o, --output <dir>`: Specify the features directory.
+
+```bash
+featslice remove auth old-slice --dry-run
+featslice rm temporary-feature --yes
+```
+
+### Stack Presets & Advanced Flags
+
+FeatSlice offers modern stack presets and flexible generation options:
+
+- **TanStack Query (`--query`, `-q`)**: Generates type-safe React Query hooks and query keys factory (`api/queries/index.ts` and `use<Feature>Query.ts`).
+  ```bash
+  featslice users list,detail --query
+  ```
+- **Next.js Server Actions (`--server-actions`, `-a`)**: Generates `'use server'` type-safe server actions in `api/actions/index.ts`.
+  ```bash
+  featslice posts editor,view --server-actions
+  ```
+- **Zustand (`--zustand`, `-z`)**: Generates typed Zustand state management store boilerplate in `store/index.ts` and `store/use<Feature>Store.ts`.
+  ```bash
+  featslice cart checkout --zustand
+  ```
+- **Testing Scaffolding (`--with-tests`, `-t`)**: Generates unit and component tests using React Testing Library (`<slice>/<slice>.test.tsx`) as well as service/action method tests.
+  ```bash
+  featslice auth login,register --with-tests
+  ```
+- **Minimal Scaffolding (`--minimal`)**: Generates only `components/`, `types/`, and slice pages (skips `api/services/`, `constants/`, and `layout.tsx`).
+  ```bash
+  featslice quick-feature view --minimal
+  ```
+- **Skip Layout (`--no-layout`)**: Explicitly skip generating `layout.tsx`.
+- **Skip Services (`--no-services`)**: Explicitly skip generating `api/services/`.
+- **Force Overwrite (`--force`, `-f`)**: Overwrite existing files rather than skipping them.
 
 ### Project Type Detection
 
@@ -198,13 +327,13 @@ featslice order-management order-list,order-details,create-order
 ## Common Questions
 
 ### Q: Where should I run this command?
-A: Run it in your project's `src` directory, typically in `src/features` or `src/modules`.
+A: You can run it from anywhere in your project! FeatSlice automatically detects if your project has a `src/features`, `src/modules`, or `features` folder. You can also pass `-o <path>` to place features anywhere you like.
 
 ### Q: How do I add a new slice later?
 A: Simply run the command again with the same feature name and the new slice name. FeatSlice will add the new slice to your existing feature structure without overwriting existing files!
 
 ### Q: Can I customize the templates?
-A: The templates are currently fixed, but future versions will support custom templates.
+A: Yes! Run `featslice init` to create a `.featslicerc.json` config and a `.featslice/templates` directory with starter templates. Any file in `.featslice/templates` (e.g. `slice.tsx`, `service.ts`, `query.ts`, `types.ts`, `layout.tsx`) will automatically override the default templates. You can use placeholders like `{{featureName}}`, `{{PascalFeature}}`, `{{sliceName}}`, and `{{PascalSlice}}`.
 
 ## Contributing
 
