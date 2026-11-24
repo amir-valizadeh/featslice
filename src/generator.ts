@@ -9,10 +9,13 @@ import {
     resolveQueryTemplate,
     resolveActionsTemplate,
     resolveZustandTemplate,
+    resolveZodTemplate,
     resolveSliceTestTemplate,
     resolveServiceTestTemplate,
     resolveActionTestTemplate,
 } from './templates/engine';
+import { getSchemaTypesTemplate } from './templates/presets/zod';
+import { EntitySchema } from './schema/parser';
 import { capitalize } from './utils';
 import { loadConfig, FeatsliceConfig } from './config';
 
@@ -26,12 +29,16 @@ export interface FeatureOptions {
     query?: boolean;
     serverActions?: boolean;
     zustand?: boolean;
+    zod?: boolean;
+    schema?: EntitySchema;
     minimal?: boolean;
     withTests?: boolean;
     noLayout?: boolean;
     layout?: boolean;
     noServices?: boolean;
     services?: boolean;
+    noBarrel?: boolean;
+    barrel?: boolean;
     force?: boolean;
 }
 
@@ -43,6 +50,49 @@ const FEATURE_STRUCTURE = [
     'api/services',
     'constants',
 ] as const;
+
+/**
+ * Generates Public API barrel content (index.ts/js) based on existing folders inside a feature.
+ */
+export async function buildPublicApiBarrelContent(
+    basePath: string,
+    featureName: string,
+    extension: string = 'ts'
+): Promise<string> {
+    const exports: string[] = [
+        `// Public API for '${featureName}' feature`,
+        `// Other features should import from here rather than deep internal paths.`,
+        '',
+    ];
+
+    const candidates: Array<{ relDir: string; exportPath: string }> = [
+        { relDir: 'components', exportPath: './components' },
+        { relDir: 'hooks', exportPath: './hooks' },
+        { relDir: 'types', exportPath: './types' },
+        { relDir: 'schemas', exportPath: './schemas' },
+        { relDir: 'utils', exportPath: './utils' },
+        { relDir: 'constants', exportPath: './constants' },
+        { relDir: path.join('api', 'services'), exportPath: './api/services' },
+        { relDir: path.join('api', 'queries'), exportPath: './api/queries' },
+        { relDir: path.join('api', 'actions'), exportPath: './api/actions' },
+        { relDir: 'store', exportPath: './store' },
+    ];
+
+    let hasAny = false;
+    for (const candidate of candidates) {
+        const indexFile = path.join(basePath, candidate.relDir, `index.${extension}`);
+        if (await fs.pathExists(indexFile)) {
+            exports.push(`export * from '${candidate.exportPath}';`);
+            hasAny = true;
+        }
+    }
+
+    if (!hasAny) {
+        exports.push('export {};');
+    }
+
+    return exports.join('\n') + '\n';
+}
 
 export async function generateFeature(options: FeatureOptions): Promise<void> {
     const { name, isNextjs, slices, dryRun = false } = options;
@@ -58,11 +108,18 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
     const minimal = options.minimal ?? false;
     const skipLayout = minimal || options.noLayout === true || options.layout === false;
     const skipServices = minimal || options.noServices === true || options.services === false;
+    const skipBarrel =
+        options.noBarrel === true ||
+        options.barrel === false ||
+        config.publicApi === false;
     const force = options.force ?? false;
-    const withTests = options.withTests ?? false;
-    const query = options.query ?? false;
-    const serverActions = options.serverActions ?? false;
-    const zustand = options.zustand ?? false;
+    const defaultPresets = config.defaultPresets || {};
+    const withTests = options.withTests ?? defaultPresets.withTests ?? false;
+    const query = options.query ?? defaultPresets.query ?? false;
+    const serverActions = options.serverActions ?? defaultPresets.serverActions ?? false;
+    const zustand = options.zustand ?? defaultPresets.zustand ?? false;
+    const zod = options.zod ?? defaultPresets.zod ?? Boolean(options.schema);
+    const schema = options.schema;
 
     let structure: readonly string[];
     if (minimal) {
@@ -141,14 +198,17 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
                         )
                     );
                 } else {
-                    const content = await resolveCommonTemplate({
-                        templateDir,
-                        isNextjs,
-                        dirName: dir,
-                        featureName: name,
-                        extension,
-                        jsxExtension,
-                    });
+                    const content =
+                        dir === 'types' && schema
+                            ? getSchemaTypesTemplate(name, schema)
+                            : await resolveCommonTemplate({
+                                  templateDir,
+                                  isNextjs,
+                                  dirName: dir,
+                                  featureName: name,
+                                  extension,
+                                  jsxExtension,
+                              });
                     await fs.writeFile(indexPath, content);
                 }
             }
@@ -326,13 +386,14 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
                     featureName: name,
                     extension,
                 });
-                const storeIndexExists = await fs.pathExists(storeIndexPath);
-                if (!storeIndexExists || force) {
-                    await fs.writeFile(storeIndexPath, content);
-                }
                 const storeHookExists = await fs.pathExists(storeHookPath);
                 if (!storeHookExists || force) {
                     await fs.writeFile(storeHookPath, content);
+                }
+                const storeIndexExists = await fs.pathExists(storeIndexPath);
+                if (!storeIndexExists || force) {
+                    const hookBase = `use${capitalize(name)}Store`;
+                    await fs.writeFile(storeIndexPath, `export * from './${hookBase}';\n`);
                 }
             }
         }
@@ -379,23 +440,67 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
                     featureName: name,
                     extension,
                 });
-                const queryIndexExists = await fs.pathExists(queryIndexPath);
-                if (!queryIndexExists || force) {
-                    await fs.writeFile(queryIndexPath, content);
-                }
                 const queryHookExists = await fs.pathExists(queryHookPath);
                 if (!queryHookExists || force) {
                     await fs.writeFile(queryHookPath, content);
                 }
+                const queryIndexExists = await fs.pathExists(queryIndexPath);
+                if (!queryIndexExists || force) {
+                    const hookBase = `use${capitalize(name)}Query`;
+                    await fs.writeFile(queryIndexPath, `export * from './${hookBase}';\n`);
+                }
 
-                // If hooks directory exists, also provide hook in hooks/
+                // If hooks directory exists, re-export query hook from hooks/
                 const hooksDir = path.join(basePath, 'hooks');
                 if (await fs.pathExists(hooksDir)) {
                     const inHooksPath = path.join(hooksDir, queryHookName);
                     const inHooksExists = await fs.pathExists(inHooksPath);
                     if (!inHooksExists || force) {
-                        await fs.writeFile(inHooksPath, content);
+                        const hookBase = `use${capitalize(name)}Query`;
+                        await fs.writeFile(
+                            inHooksPath,
+                            `export * from '../api/queries/${hookBase}';\n`
+                        );
                     }
+                }
+            }
+        }
+
+        // Create Zod schemas if requested (or auto-enabled via --from schema)
+        if (zod) {
+            const schemasDir = path.join(basePath, 'schemas');
+            const schemaIndexName = `index.${extension}`;
+            const schemaIndexPath = path.join(schemasDir, schemaIndexName);
+
+            if (dryRun) {
+                console.log(
+                    chalk.yellow(
+                        `[DRY RUN] Would create directory: ${path.join(
+                            displayFeaturePath,
+                            'schemas'
+                        )}`
+                    )
+                );
+                console.log(
+                    chalk.yellow(
+                        `[DRY RUN] Would create file: ${path.join(
+                            displayFeaturePath,
+                            'schemas',
+                            schemaIndexName
+                        )}`
+                    )
+                );
+            } else {
+                await fs.ensureDir(schemasDir);
+                const schemaIndexExists = await fs.pathExists(schemaIndexPath);
+                if (!schemaIndexExists || force) {
+                    const content = await resolveZodTemplate({
+                        templateDir,
+                        featureName: name,
+                        extension,
+                        schema,
+                    });
+                    await fs.writeFile(schemaIndexPath, content);
                 }
             }
         }
@@ -531,6 +636,33 @@ export async function generateFeature(options: FeatureOptions): Promise<void> {
                         jsxExtension,
                     });
                     await fs.writeFile(layoutPath, content);
+                }
+            }
+        }
+
+        // Create Public API barrel (index.ts/js) at feature root
+        if (!skipBarrel) {
+            const barrelFileName = `index.${extension}`;
+            const barrelPath = path.join(basePath, barrelFileName);
+            const barrelExists = await fs.pathExists(barrelPath);
+
+            if (!barrelExists || force) {
+                if (dryRun) {
+                    console.log(
+                        chalk.yellow(
+                            `[DRY RUN] Would create file: ${path.join(
+                                displayFeaturePath,
+                                barrelFileName
+                            )}`
+                        )
+                    );
+                } else {
+                    const barrelContent = await buildPublicApiBarrelContent(
+                        basePath,
+                        name,
+                        extension
+                    );
+                    await fs.writeFile(barrelPath, barrelContent);
                 }
             }
         }

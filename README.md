@@ -153,6 +153,61 @@ featslice remove auth old-slice --dry-run
 featslice rm temporary-feature --yes
 ```
 
+### 4. Architecture Guard & Dependency Graph (`check`, `graph`)
+
+Enforce clean feature boundaries, detect circular dependencies, and visualize how features depend on each other:
+
+```bash
+# Audit feature boundaries, deep cross-feature imports, Public API barrels, and cycles
+featslice check
+featslice check --fix    # Auto-generate missing Public API index.ts barrels
+featslice check --ci     # Exit with code 1 on errors (for CI/CD pipelines)
+featslice check --json
+
+# Generate dependency graph
+featslice graph
+featslice graph --format mermaid --out docs/architecture.md
+featslice graph --format json
+```
+
+Configure custom boundaries in `.featslicerc.json`:
+```json
+{
+  "outputDir": "src/features",
+  "publicApi": true,
+  "boundaries": {
+    "sharedFeatures": ["auth"],
+    "deny": { "billing": ["cart"] }
+  }
+}
+```
+
+### 5. Schema-Driven Scaffolding (`--from`, `--model`, `--zod`)
+
+Generate real typed interfaces and Zod validation schemas directly from **Prisma**, **Drizzle**, **TypeScript**, or **OpenAPI JSON** instead of empty placeholders:
+
+```bash
+featslice users list,create --from prisma/schema.prisma --model User --query --zod
+featslice orders list,detail --from src/db/schema.ts --model orders --query
+featslice invoices list --from openapi.json --model Invoice
+```
+
+### 6. Safe Refactoring & Preset Retrofitting (`rename`, `move`, `preset`)
+
+Refactor features and slices safely with automatic relative & `tsconfig.json` alias import rewriting:
+
+```bash
+# Rename a feature or a slice (supports --dry-run)
+featslice rename auth identity --dry-run
+featslice rename auth/login sign-in
+
+# Move a slice into another feature
+featslice move auth/profile users
+
+# Add stack presets to an existing feature without touching existing slices
+featslice preset add billing --query --zod --with-tests
+```
+
 ### Stack Presets & Advanced Flags
 
 FeatSlice offers modern stack presets and flexible generation options:

@@ -14,6 +14,8 @@ import { getServiceTemplate } from './service';
 import { getQueryTemplate } from './presets/query';
 import { getActionsTemplate } from './presets/actions';
 import { getZustandTemplate } from './presets/zustand';
+import { getZodTemplate } from './presets/zod';
+import { EntitySchema } from '../schema/parser';
 import {
     getSliceTestTemplate,
     getServiceTestTemplate,
@@ -496,5 +498,35 @@ export async function resolveActionTestTemplate(options: ResolvePresetOptions): 
     }
 
     return getActionTestTemplate(featureName);
+}
+
+export interface ResolveZodOptions extends ResolvePresetOptions {
+    schema?: EntitySchema;
+}
+
+/**
+ * Resolves a Zod schema template, either from custom templateDir or falling back to built-ins.
+ */
+export async function resolveZodTemplate(options: ResolveZodOptions): Promise<string> {
+    const { templateDir, featureName, extension = 'ts', schema } = options;
+
+    if (templateDir) {
+        const candidates = [
+            `zod.${extension}`,
+            'zod.ts',
+            'zod.js',
+            `schema.${extension}`,
+            'schema.ts',
+            'schema.js',
+        ];
+
+        const custom = await findCustomTemplate(templateDir, candidates);
+        if (custom !== null) {
+            const vars = buildTemplateVariables(featureName);
+            return renderTemplate(custom, vars);
+        }
+    }
+
+    return getZodTemplate(featureName, schema);
 }
 

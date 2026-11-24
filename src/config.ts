@@ -1,12 +1,32 @@
 import fs from 'fs-extra';
 import path from 'path';
 
+export interface BoundaryRules {
+    /** Map of feature name -> allowed target features (overrides default restrictions) */
+    allow?: Record<string, string[]>;
+    /** Map of feature name -> forbidden target features */
+    deny?: Record<string, string[]>;
+    /** Features that any other feature is allowed to import via their public API */
+    sharedFeatures?: string[];
+}
+
+export interface DefaultPresetsConfig {
+    query?: boolean;
+    serverActions?: boolean;
+    zustand?: boolean;
+    withTests?: boolean;
+    zod?: boolean;
+}
+
 export interface FeatsliceConfig {
     outputDir?: string;
     templateDir?: string;
     structure?: string[];
     extension?: 'ts' | 'js';
     jsxExtension?: 'tsx' | 'jsx';
+    publicApi?: boolean;
+    defaultPresets?: DefaultPresetsConfig;
+    boundaries?: BoundaryRules;
     configPath?: string;
 }
 
@@ -14,6 +34,7 @@ export const DEFAULT_CONFIG: FeatsliceConfig = {
     templateDir: '.featslice/templates',
     extension: 'ts',
     jsxExtension: 'tsx',
+    publicApi: true,
 };
 
 export const CONFIG_FILE_NAMES = [

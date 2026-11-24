@@ -28,6 +28,7 @@ const NON_SLICE_DIRS = new Set([
     'actions',
     'queries',
     'store',
+    'schemas',
     '__tests__',
     'test',
     'tests',
@@ -45,6 +46,7 @@ const NON_FEATURE_NAMES = new Set([
     'actions',
     'queries',
     'store',
+    'schemas',
     '__tests__',
     'test',
     'tests',
@@ -198,6 +200,12 @@ async function detectFeaturePresets(featurePath: string): Promise<string[]> {
     const hasStoreDir = await fs.pathExists(path.join(featurePath, 'store'));
     if (hasStoreDir) {
         presets.push('Zustand');
+    }
+
+    // Zod: schemas folder
+    const hasSchemasDir = await fs.pathExists(path.join(featurePath, 'schemas'));
+    if (hasSchemasDir) {
+        presets.push('Zod');
     }
 
     // Tests: test files present

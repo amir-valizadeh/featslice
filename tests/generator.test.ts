@@ -293,7 +293,10 @@ describe('generateFeature', () => {
     expect(await fs.pathExists(path.join(basePath, 'api', 'queries', 'useOrdersQuery.ts'))).toBe(true);
     expect(await fs.pathExists(path.join(basePath, 'hooks', 'useOrdersQuery.ts'))).toBe(true);
 
-    const queryContent = await fs.readFile(path.join(basePath, 'api', 'queries', 'index.ts'), 'utf-8');
+    const queryIndexContent = await fs.readFile(path.join(basePath, 'api', 'queries', 'index.ts'), 'utf-8');
+    expect(queryIndexContent).toContain("export * from './useOrdersQuery';");
+
+    const queryContent = await fs.readFile(path.join(basePath, 'api', 'queries', 'useOrdersQuery.ts'), 'utf-8');
     expect(queryContent).toContain('ORDERS_KEYS');
     expect(queryContent).toContain("all: ['orders'] as const");
     expect(queryContent).toContain('useOrdersQuery');
@@ -330,7 +333,10 @@ describe('generateFeature', () => {
     expect(await fs.pathExists(path.join(basePath, 'store', 'index.ts'))).toBe(true);
     expect(await fs.pathExists(path.join(basePath, 'store', 'useCartStore.ts'))).toBe(true);
 
-    const storeContent = await fs.readFile(path.join(basePath, 'store', 'index.ts'), 'utf-8');
+    const storeIndexContent = await fs.readFile(path.join(basePath, 'store', 'index.ts'), 'utf-8');
+    expect(storeIndexContent).toContain("export * from './useCartStore';");
+
+    const storeContent = await fs.readFile(path.join(basePath, 'store', 'useCartStore.ts'), 'utf-8');
     expect(storeContent).toContain("import { create } from 'zustand';");
     expect(storeContent).toContain('export interface CartState');
     expect(storeContent).toContain('export const useCartStore = create<CartState>');
